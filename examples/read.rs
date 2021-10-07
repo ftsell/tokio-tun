@@ -12,7 +12,7 @@ async fn main() -> Result<()> {
         .packet_info(false)
         .mtu(1350)
         .up()
-        .address(Ipv4Addr::new(10, 0, 0, 1))
+        .address(Ipv4Addr::new(10, 0, 0, 1).into())
         .destination(Ipv4Addr::new(10, 1, 0, 1))
         .broadcast(Ipv4Addr::BROADCAST)
         .netmask(Ipv4Addr::new(255, 255, 255, 0))

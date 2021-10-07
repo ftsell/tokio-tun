@@ -1,4 +1,4 @@
-use super::request::{sockaddr, in6_addr};
+use super::request::{in6_addr, sockaddr};
 use std::mem;
 use std::net::{Ipv4Addr, Ipv6Addr};
 

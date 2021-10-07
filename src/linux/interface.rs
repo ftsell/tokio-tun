@@ -1,9 +1,8 @@
 use super::params::Params;
-use super::request::{ifreq, in6_ifreq, in6_addr};
+use super::request::{ifreq, in6_ifreq};
 use crate::linux::address::{Ipv4AddrExt, Ipv6AddrExt};
 use crate::result::Result;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use nix::errno::Errno::EADDRNOTAVAIL;
+use std::net::{IpAddr, Ipv4Addr};
 
 nix::ioctl_write_int!(tunsetiff, b'T', 202);
 nix::ioctl_write_int!(tunsetpersist, b'T', 203);
@@ -122,25 +121,23 @@ impl Interface {
                 unsafe { siocgifaddr(self.socket, &mut req) }?;
                 Ok(unsafe { IpAddr::V4(Ipv4Addr::from_address(req.ifr_ifru.ifru_addr)) })
             }
-            Some(address) => {
-                match address {
-                    IpAddr::V4(address) => {
-                        let mut req = ifreq::new(self.name());
-                        req.ifr_ifru.ifru_addr = address.to_address();
-                        unsafe { siocsifaddr(self.socket, &req) }?;
-                        Ok(IpAddr::V4(address))
-                    }
-                    IpAddr::V6(address) => {
-                        let req = in6_ifreq {
-                            ifr6_ifindex: self.index()?,
-                            ifr6_prefixlen: 128,
-                            ifr6_addr: address.to_address(),
-                        };
-                        unsafe { siocsifaddr6(self.socket6, &req) }?;
-                        Ok(IpAddr::V6(address))
-                    }
+            Some(address) => match address {
+                IpAddr::V4(address) => {
+                    let mut req = ifreq::new(self.name());
+                    req.ifr_ifru.ifru_addr = address.to_address();
+                    unsafe { siocsifaddr(self.socket, &req) }?;
+                    Ok(IpAddr::V4(address))
                 }
-            }
+                IpAddr::V6(address) => {
+                    let req = in6_ifreq {
+                        ifr6_ifindex: self.index()?,
+                        ifr6_prefixlen: 128,
+                        ifr6_addr: address.to_address(),
+                    };
+                    unsafe { siocsifaddr6(self.socket6, &req) }?;
+                    Ok(IpAddr::V6(address))
+                }
+            },
         }
     }
 

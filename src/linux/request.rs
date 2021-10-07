@@ -3,7 +3,7 @@
 #![allow(non_snake_case)]
 #![allow(dead_code)]
 
-use std::os::raw::{c_char, c_int, c_short, c_uchar, c_ulong, c_ushort};
+use std::os::raw::{c_char, c_uchar, c_ulong, c_ushort};
 use std::{ffi::CStr, mem, ptr, str};
 
 const IFNAMSIZ: u32 = 16;
