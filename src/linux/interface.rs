@@ -62,7 +62,7 @@ impl Interface {
             self.group(group)?;
         }
         if let Some(address) = params.address {
-            self.address(Some(address))?;
+            self.address(Some(address), params.prefix_length)?;
         }
         if let Some(netmask) = params.netmask {
             self.netmask(Some(netmask))?;
@@ -112,7 +112,7 @@ impl Interface {
         Ok(unsafe { Ipv4Addr::from_address(req.ifr_ifru.ifru_netmask) })
     }
 
-    pub fn address(&self, address: Option<IpAddr>) -> Result<IpAddr> {
+    pub fn address(&self, address: Option<IpAddr>, _prefix_length: u32) -> Result<IpAddr> {
         match address {
             None => {
                 // TODO handle IPv6 addresses
@@ -121,23 +121,25 @@ impl Interface {
                 unsafe { siocgifaddr(self.socket, &mut req) }?;
                 Ok(unsafe { IpAddr::V4(Ipv4Addr::from_address(req.ifr_ifru.ifru_addr)) })
             }
-            Some(address) => match address {
-                IpAddr::V4(address) => {
-                    let mut req = ifreq::new(self.name());
-                    req.ifr_ifru.ifru_addr = address.to_address();
-                    unsafe { siocsifaddr(self.socket, &req) }?;
-                    Ok(IpAddr::V4(address))
+            Some(address) => {
+                match address {
+                    IpAddr::V4(address) => {
+                        let mut req = ifreq::new(self.name());
+                        req.ifr_ifru.ifru_addr = address.to_address();
+                        unsafe { siocsifaddr(self.socket, &req) }?;
+                        Ok(IpAddr::V4(address))
+                    }
+                    IpAddr::V6(address) => {
+                        let req = in6_ifreq {
+                            ifr6_ifindex: self.index()?,
+                            ifr6_prefixlen: 128,
+                            ifr6_addr: address.to_address(),
+                        };
+                        unsafe { siocsifaddr6(self.socket6, &req) }?;
+                        Ok(IpAddr::V6(address))
+                    }
                 }
-                IpAddr::V6(address) => {
-                    let req = in6_ifreq {
-                        ifr6_ifindex: self.index()?,
-                        ifr6_prefixlen: 128,
-                        ifr6_addr: address.to_address(),
-                    };
-                    unsafe { siocsifaddr6(self.socket6, &req) }?;
-                    Ok(IpAddr::V6(address))
-                }
-            },
+            }
         }
     }
 
