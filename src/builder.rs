@@ -175,6 +175,9 @@ impl<'a> TunBuilder<'a> {
 
     /// Builds a new instance of [`Tun`](struct.Tun.html).
     pub fn try_build(self) -> Result<Tun> {
+        if let (Some(_), Some(IpAddr::V6(_))) = (self.netmask, self.address) {
+            return Err("Netmask was present, while address was of type IPv6.".into())
+        }
         Tun::new(self.into())
     }
 
@@ -183,6 +186,9 @@ impl<'a> TunBuilder<'a> {
     /// Internally this creates multiple file descriptors to parallelize packet sending and receiving.
     #[cfg(target_os = "linux")]
     pub fn try_build_mq(self, queues: usize) -> Result<Vec<Tun>> {
+        if let (Some(_), Some(IpAddr::V6(_))) = (self.netmask, self.address) {
+            return Err("Netmask was present, while address was of type IPv6.".into())
+        }
         Tun::new_mq(self.into(), queues)
     }
 }
