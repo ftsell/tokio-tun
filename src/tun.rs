@@ -4,7 +4,7 @@ use crate::linux::params::Params;
 use crate::result::Result;
 use std::io;
 use std::io::{Read, Write};
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::os::raw::c_char;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::pin::Pin;
@@ -194,7 +194,7 @@ impl Tun {
     }
 
     /// Returns the IPv4 address of MTU.
-    pub fn address(&self) -> Result<Ipv4Addr> {
+    pub fn address(&self) -> Result<IpAddr> {
         self.iface.address(None)
     }
 
