@@ -2,17 +2,26 @@ use crate::linux::interface::Interface;
 use crate::linux::io::TunIo;
 use crate::linux::params::Params;
 use crate::result::Result;
-use futures::ready;
-use std::ffi::CString;
 use std::io;
 use std::io::{Read, Write};
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
+use std::os::raw::c_char;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{self, Context, Poll};
 use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+// Taken from the `futures` crate
+macro_rules! ready {
+    ($e:expr $(,)?) => {
+        match $e {
+            std::task::Poll::Ready(t) => t,
+            std::task::Poll::Pending => return std::task::Poll::Pending,
+        }
+    };
+}
 
 /// Represents a Tun/Tap device. Use [`TunBuilder`](struct.TunBuilder.html) to create a new instance of [`Tun`](struct.Tun.html).
 pub struct Tun {
@@ -33,12 +42,15 @@ impl AsyncRead for Tun {
         buf: &mut ReadBuf<'_>,
     ) -> task::Poll<io::Result<()>> {
         let self_mut = self.get_mut();
-        let mut b = vec![0; buf.capacity()];
         loop {
             let mut guard = ready!(self_mut.io.poll_read_ready_mut(cx))?;
 
-            match guard.try_io(|inner| inner.get_mut().read(&mut b)) {
-                Ok(n) => return Poll::Ready(n.map(|n| buf.put_slice(&b[..n]))),
+            match guard.try_io(|inner| inner.get_mut().read(buf.initialize_unfilled())) {
+                Ok(Ok(n)) => {
+                    buf.set_filled(buf.filled().len() + n);
+                    return Poll::Ready(Ok(()));
+                }
+                Ok(Err(err)) => return Poll::Ready(Err(err)),
                 Err(_) => continue,
             }
         }
@@ -94,9 +106,8 @@ impl Tun {
     pub(crate) fn new_mq(params: Params, queues: usize) -> Result<Vec<Self>> {
         let iface = Self::allocate(params, queues)?;
         let mut tuns = Vec::with_capacity(queues);
-        let files = iface.files().to_vec();
         let iface = Arc::new(iface);
-        for fd in files.into_iter() {
+        for &fd in iface.files() {
             tuns.push(Self {
                 iface: iface.clone(),
                 io: AsyncFd::new(TunIo::from(fd))?,
@@ -106,11 +117,17 @@ impl Tun {
     }
 
     fn allocate(params: Params, queues: usize) -> Result<Interface> {
-        let mut fds = Vec::with_capacity(queues);
-        let path = CString::new("/dev/net/tun")?;
-        for _ in 0..queues {
-            fds.push(unsafe { libc::open(path.as_ptr(), libc::O_RDWR | libc::O_NONBLOCK) });
-        }
+        static TUN: &[u8] = b"/dev/net/tun\0";
+
+        let fds = (0..queues)
+            .map(|_| unsafe {
+                libc::open(
+                    TUN.as_ptr().cast::<c_char>(),
+                    libc::O_RDWR | libc::O_NONBLOCK,
+                )
+            })
+            .collect::<Vec<_>>();
+
         let iface = Interface::new(
             fds,
             params.name.as_deref().unwrap_or_default(),
@@ -118,6 +135,52 @@ impl Tun {
         )?;
         iface.init(params)?;
         Ok(iface)
+    }
+
+    /// Receives a packet from the Tun/Tap interface
+    ///
+    /// This method takes &self, so it is possible to call this method concurrently with other methods on this struct.
+    pub async fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
+        loop {
+            let mut guard = self.io.readable().await?;
+
+            match guard.try_io(|inner| inner.get_ref().recv(buf)) {
+                Ok(res) => return res,
+                Err(_) => continue,
+            }
+        }
+    }
+
+    /// Sends a packet to the Tun/Tap interface
+    ///
+    /// This method takes &self, so it is possible to call this method concurrently with other methods on this struct.
+    pub async fn send(&self, buf: &[u8]) -> io::Result<usize> {
+        loop {
+            let mut guard = self.io.writable().await?;
+
+            match guard.try_io(|inner| inner.get_ref().send(buf)) {
+                Ok(res) => return res,
+                Err(_) => continue,
+            }
+        }
+    }
+
+    /// Try to receive a packet from the Tun/Tap interface
+    ///
+    /// When there is no pending data, `Err(io::ErrorKind::WouldBlock)` is returned.
+    ///
+    /// This method takes &self, so it is possible to call this method concurrently with other methods on this struct.
+    pub fn try_recv(&self, buf: &mut [u8]) -> io::Result<usize> {
+        self.io.get_ref().recv(buf)
+    }
+
+    /// Try to send a packet to the Tun/Tap interface
+    ///
+    /// When the socket buffer is full, `Err(io::ErrorKind::WouldBlock)` is returned.
+    ///
+    /// This method takes &self, so it is possible to call this method concurrently with other methods on this struct.
+    pub fn try_send(&self, buf: &[u8]) -> io::Result<usize> {
+        self.io.get_ref().send(buf)
     }
 
     /// Returns the name of Tun/Tap device.
@@ -131,8 +194,8 @@ impl Tun {
     }
 
     /// Returns the IPv4 address of MTU.
-    pub fn address(&self) -> Result<Ipv4Addr> {
-        self.iface.address(None)
+    pub fn address(&self) -> Result<IpAddr> {
+        self.iface.address(None, 0)
     }
 
     /// Returns the IPv4 destination address of MTU.
