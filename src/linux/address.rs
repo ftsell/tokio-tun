@@ -3,6 +3,7 @@ use std::mem;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 /// A utility trait used to convert between rust and C IPv4 address representations
+/// A utility trait used to convert between rust and C IPv4 address representations
 pub trait Ipv4AddrExt {
     fn to_address(&self) -> sockaddr;
     fn from_address(sock: sockaddr) -> Self;
